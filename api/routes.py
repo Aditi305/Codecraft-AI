@@ -51,6 +51,36 @@ def generate_code(request: TaskRequest):
             final_decision=result.get("decision", "")
         )
     except Exception as e:
+        # Check for OpenAI/OpenRouter authentication errors and map them to 401
+        try:
+            import openai
+            # Support both openai.AuthenticationError and openai.error.AuthenticationError
+            auth_exc = getattr(openai, 'AuthenticationError', None)
+            if auth_exc is None and hasattr(openai, 'error'):
+                auth_exc = getattr(openai.error, 'AuthenticationError', None)
+        except Exception:
+            auth_exc = None
+
+        if auth_exc and isinstance(e, auth_exc):
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error": "OpenRouter API Key Issue",
+                    "message": "Authentication failed when calling the OpenRouter/OpenAI API (invalid or inactive API key).",
+                    "solutions": [
+                        "1. Verify your OPENROUTER_API_KEY is present in your .env or environment variables",
+                        "2. Check the key is active at https://openrouter.ai/settings/keys",
+                        "3. Ensure your account has access and credits at https://openrouter.ai/credits",
+                        "4. If using a rotated key, update the .env and restart the server"
+                    ],
+                    "help_links": {
+                        "keys": "https://openrouter.ai/settings/keys",
+                        "credits": "https://openrouter.ai/credits",
+                        "activity": "https://openrouter.ai/activity"
+                    }
+                }
+            )
+
         error_str = str(e)
         
         # handle different error types
@@ -73,7 +103,8 @@ def generate_code(request: TaskRequest):
                     }
                 }
             )
-        elif "api_key" in error_str.lower() or "authentication" in error_str.lower() or "unauthorized" in error_str.lower():
+        elif "api_key" in error_str.lower() or "authentication" in error_str.lower() or "unauthorized" in error_str.lower() or "user not found" in error_str.lower():
+            # Fallback for providers that return message text
             raise HTTPException(
                 status_code=401,  # Unauthorized
                 detail={
